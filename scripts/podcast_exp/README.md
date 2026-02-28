@@ -8,13 +8,18 @@ This runbook is engineered for a corpus of ~360 podcast episode transcripts.
 - `src/ctx_to_lora/data/processing.py` already loads parquet patterns from `train_ds_names` when entries end with `.parquet`.
 
 ## 1) Build compact dataset from transcripts
-Input format: JSONL with fields `{episode_id?, title?, transcript}`.
+Input format supports both:
+- flat field rows: `{episode_id?, title?, transcript}`
+- notes-like segment rows: `{episode_id?, title?, segments:[{speaker,text,...}]}`
 
 ```bash
 uv run python data/build_podcast360_compact.py \
   --input_jsonl data/raw_datasets/podcast360/transcripts.jsonl \
   --out_dir data/raw_datasets/podcast360_compact
 ```
+
+By default, timestamp tokens like `00:12:33` are stripped during normalization.
+Use `--keep_timestamps` if those markers matter for your downstream tasks.
 
 This creates:
 - `data/raw_datasets/podcast360_compact/train/ds.parquet`

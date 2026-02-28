@@ -1,10 +1,15 @@
 import argparse
 import json
-import os
 import random
+import re
 from pathlib import Path
 
 from datasets import Dataset
+
+
+_TS_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
+_SPACES_RE = re.compile(r"[ \t]+")
+_MULTI_NL_RE = re.compile(r"\n{3,}")
 
 
 def load_jsonl(path: str):
@@ -16,6 +21,44 @@ def load_jsonl(path: str):
                 continue
             rows.append(json.loads(line))
     return rows
+
+
+def normalize_transcript(raw: str, strip_timestamps: bool = True) -> str:
+    txt = raw.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if strip_timestamps:
+        txt = _TS_RE.sub("", txt)
+    txt = _SPACES_RE.sub(" ", txt)
+    txt = re.sub(r"\n +", "\n", txt)
+    txt = _MULTI_NL_RE.sub("\n\n", txt)
+    return txt.strip()
+
+
+def extract_transcript(row: dict) -> str:
+    # Preferred flat fields
+    for k in ["transcript", "notes_transcript", "content", "episode_transcript"]:
+        v = row.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    # Segment-style payload from notes exports
+    segments = row.get("segments") or row.get("transcript_segments") or []
+    if isinstance(segments, list) and segments:
+        lines = []
+        for seg in segments:
+            if not isinstance(seg, dict):
+                continue
+            speaker = (seg.get("speaker") or seg.get("speaker_name") or "").strip()
+            text = (seg.get("text") or seg.get("content") or "").strip()
+            if not text:
+                continue
+            if speaker:
+                lines.append(f"{speaker}: {text}")
+            else:
+                lines.append(text)
+        if lines:
+            return "\n".join(lines)
+
+    return ""
 
 
 def mk_prompts(title: str):
@@ -30,10 +73,13 @@ def mk_prompts(title: str):
     ]
 
 
-def build_samples(rows):
+def build_samples(rows, strip_timestamps: bool = True):
     samples = []
     for row in rows:
-        transcript = (row.get("transcript") or "").strip()
+        transcript_raw = extract_transcript(row)
+        transcript = normalize_transcript(
+            transcript_raw, strip_timestamps=strip_timestamps
+        )
         if not transcript:
             continue
         title = (row.get("title") or row.get("episode_title") or "").strip()
@@ -74,12 +120,17 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train_ratio", type=float, default=0.84)
     parser.add_argument("--val_ratio", type=float, default=0.08)
+    parser.add_argument(
+        "--keep_timestamps",
+        action="store_true",
+        help="Keep inline timestamps (default strips HH:MM[:SS] patterns)",
+    )
     args = parser.parse_args()
 
     random.seed(args.seed)
 
     rows = load_jsonl(args.input_jsonl)
-    samples = build_samples(rows)
+    samples = build_samples(rows, strip_timestamps=not args.keep_timestamps)
     random.shuffle(samples)
 
     n = len(samples)

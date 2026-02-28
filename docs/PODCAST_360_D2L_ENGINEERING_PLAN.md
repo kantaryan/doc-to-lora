@@ -4,7 +4,7 @@
 Train and evaluate a practical Doc-to-LoRA setup that internalizes podcast episode knowledge, so downstream QA can run without repeatedly injecting full transcripts in context.
 
 ## Codebase-grounded assumptions
-This plan is based on current repository implementation details:
+This plan is based on current repository implementation details and the provided sample transcript note format (speaker turns + occasional timestamps):
 - training entrypoint: `train.py`
 - dataset loading/tokenization: `src/ctx_to_lora/data/processing.py`
 - preprocessing behavior: `src/ctx_to_lora/data/preprocessing_fn.py`
@@ -20,14 +20,20 @@ This plan is based on current repository implementation details:
 ## End-to-end plan
 
 ## Phase A — Data construction from transcripts
-Input: 360 episodes as JSONL (`episode_id`, `title`, `transcript`).
+Input: 360 episodes as JSONL. Supported fields now include:
+- flat transcript: `transcript` / `notes_transcript` / `content` / `episode_transcript`
+- segment arrays: `segments` / `transcript_segments` with `speaker` + `text`
 
 Steps:
 1. Build compact dataset with one row per episode:
-   - `context`: full transcript text
+   - `context`: normalized transcript text
    - `prompts`: 6+ episode-focused QA prompts
-2. Split into train/validation/test (84/8/8 default).
-3. Persist as parquet in `data/raw_datasets/podcast360_compact/{split}/ds.parquet`.
+2. Normalize transcript artifacts from notes exports:
+   - strip `HH:MM[:SS]` timestamps by default,
+   - collapse noisy whitespace/newline bursts,
+   - preserve speaker prefixes when available.
+3. Split into train/validation/test (84/8/8 default).
+4. Persist as parquet in `data/raw_datasets/podcast360_compact/{split}/ds.parquet`.
 
 Implemented helper:
 - `data/build_podcast360_compact.py`
